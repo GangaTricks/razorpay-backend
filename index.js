@@ -27,7 +27,7 @@ app.post("/create-order", async (req, res) => {
   const { amount, uid, courseId } = req.body;
 
   const order = await razorpay.orders.create({
-    amount: amount * 1,
+    amount: amount * 100,
     currency: "INR",
     receipt: `${uid}_${courseId}_${Date.now()}`
   });
