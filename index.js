@@ -4,22 +4,25 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import admin from "firebase-admin";
 
-/* =========================
-   BASIC APP SETUP
-========================= */
 const app = express();
 
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"]
-}));
+/* ---------- CORS (FINAL) ---------- */
+const corsOptions = {
+  origin: [
+    "http://localhost:8080",
+    "https://gangasolvo.web.app",
+    "https://gangasolvo.firebaseapp.com"
+  ],
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  optionsSuccessStatus: 204
+};
 
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json());
 
-/* =========================
-   ENV VALIDATION (CRITICAL)
-========================= */
+/* ---------- ENV CHECK ---------- */
 if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
   throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
 }
@@ -30,17 +33,19 @@ if (!process.env.RAZORPAY_KEY_SECRET) {
   throw new Error("RAZORPAY_KEY_SECRET missing");
 }
 
-/* =========================
-   FIREBASE ADMIN INIT
-========================= */
-const serviceAccount = JSON.parse(
-  process.env.FIREBASE_SERVICE_ACCOUNT
-);
+/* ---------- FIREBASE ADMIN (SAFE) ---------- */
+let serviceAccount;
+try {
+  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} catch (err) {
+  console.error("❌ INVALID FIREBASE_SERVICE_ACCOUNT JSON");
+  console.error(err);
+  process.exit(1);
+}
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL:
-    "https://gangasolvo-default-rtdb.asia-southeast1.firebasedatabase.app"
+  databaseURL: "https://gangasolvo-default-rtdb.asia-southeast1.firebasedatabase.app"
 });
 
 /* =========================
