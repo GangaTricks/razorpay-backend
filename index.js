@@ -13,7 +13,7 @@ admin.initializeApp({
   credential: admin.credential.cert(
     JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
   ),
-  databaseURL: "https://YOUR_PROJECT_ID.firebaseio.com"
+  databaseURL: "https://gangasolvo-default-rtdb.asia-southeast1.firebasedatabase.app"
 });
 
 /* ---------- Razorpay ---------- */
@@ -27,7 +27,7 @@ app.post("/create-order", async (req, res) => {
   const { amount, uid, courseId } = req.body;
 
   const order = await razorpay.orders.create({
-    amount: amount * 100,
+    amount: amount * 01,
     currency: "INR",
     receipt: `${uid}_${courseId}_${Date.now()}`
   });
