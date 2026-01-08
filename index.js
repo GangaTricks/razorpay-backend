@@ -4,44 +4,35 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 import admin from "firebase-admin";
 
+/* =========================
+   APP SETUP
+========================= */
 const app = express();
 
-/* ---------- CORS (FINAL) ---------- */
-const corsOptions = {
+app.use(cors({
   origin: [
     "http://localhost:8080",
     "https://gangasolvo.web.app",
     "https://gangasolvo.firebaseapp.com"
   ],
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-  optionsSuccessStatus: 204
-};
+  allowedHeaders: ["Content-Type"]
+}));
 
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
 app.use(express.json());
 
-/* ---------- ENV CHECK ---------- */
-if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-  throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
-}
-if (!process.env.RAZORPAY_KEY_ID) {
-  throw new Error("RAZORPAY_KEY_ID missing");
-}
-if (!process.env.RAZORPAY_KEY_SECRET) {
-  throw new Error("RAZORPAY_KEY_SECRET missing");
-}
+/* =========================
+   ENV VALIDATION
+========================= */
+if (!process.env.PORT) throw new Error("PORT missing");
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
+if (!process.env.RAZORPAY_KEY_ID) throw new Error("RAZORPAY_KEY_ID missing");
+if (!process.env.RAZORPAY_KEY_SECRET) throw new Error("RAZORPAY_KEY_SECRET missing");
 
-/* ---------- FIREBASE ADMIN (SAFE) ---------- */
-let serviceAccount;
-try {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-} catch (err) {
-  console.error("❌ INVALID FIREBASE_SERVICE_ACCOUNT JSON");
-  console.error(err);
-  process.exit(1);
-}
+/* =========================
+   FIREBASE ADMIN
+========================= */
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -49,7 +40,7 @@ admin.initializeApp({
 });
 
 /* =========================
-   RAZORPAY INIT
+   RAZORPAY INIT (TEST)
 ========================= */
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -57,9 +48,9 @@ const razorpay = new Razorpay({
 });
 
 /* =========================
-   HEALTH CHECK (DEBUG)
+   HEALTH CHECK
 ========================= */
-app.get("/health", (req, res) => {
+app.get("/health", (_, res) => {
   res.json({ status: "ok" });
 });
 
@@ -75,7 +66,7 @@ app.post("/create-order", async (req, res) => {
     }
 
     const order = await razorpay.orders.create({
-      amount: amount * 100, // 🔥 REQUIRED (paise)
+      amount: amount * 100, // paise
       currency: "INR",
       receipt: `${uid}_${courseId}_${Date.now()}`
     });
@@ -83,7 +74,7 @@ app.post("/create-order", async (req, res) => {
     res.json(order);
 
   } catch (err) {
-    console.error("❌ Razorpay create-order error:", err);
+    console.error("❌ Razorpay create-order error:", err?.error || err?.message);
     res.status(500).json({ error: "Order creation failed" });
   }
 });
@@ -101,15 +92,14 @@ app.post("/verify-payment", async (req, res) => {
       courseId
     } = req.body;
 
-    const body =
-      razorpay_order_id + "|" + razorpay_payment_id;
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
 
-    const expected = crypto
+    const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body)
       .digest("hex");
 
-    if (expected !== razorpay_signature) {
+    if (expectedSignature !== razorpay_signature) {
       return res.status(400).json({ success: false });
     }
 
@@ -132,9 +122,6 @@ app.post("/verify-payment", async (req, res) => {
 /* =========================
    START SERVER
 ========================= */
-const PORT = Number(process.env.PORT);
-
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("✅ Server listening on", PORT);
+app.listen(process.env.PORT, "0.0.0.0", () => {
+  console.log("✅ Backend running on", process.env.PORT);
 });
-
