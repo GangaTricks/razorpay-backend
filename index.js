@@ -69,10 +69,14 @@ app.post("/create-order", async (req, res) => {
     const order = await razorpay.orders.create({
       amount: Number(amount) * 100, // paise
       currency: "INR",
-      receipt: `c_${Date.now()}`
+      receipt: `course_${Date.now()}`
     });
 
-    res.json(order);
+    // 🔑 RETURN KEY FROM BACKEND (CRITICAL)
+    res.json({
+      order,
+      key: process.env.RAZORPAY_KEY_ID
+    });
 
   } catch (err) {
     console.error("❌ CREATE ORDER ERROR:", err?.error || err);
