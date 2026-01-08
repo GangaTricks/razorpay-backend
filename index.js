@@ -27,15 +27,21 @@ app.use(express.json());
 if (!process.env.PORT) throw new Error("PORT missing");
 if (!process.env.RAZORPAY_KEY_ID) throw new Error("RAZORPAY_KEY_ID missing");
 if (!process.env.RAZORPAY_KEY_SECRET) throw new Error("RAZORPAY_KEY_SECRET missing");
-if (!process.env.FIREBASE_SERVICE_ACCOUNT) throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
+if (!process.env.FIREBASE_SERVICE_ACCOUNT_BASE64)
+  throw new Error("FIREBASE_SERVICE_ACCOUNT_BASE64 missing");
 
 /* ======================
-   FIREBASE ADMIN
+   FIREBASE ADMIN (BASE64 SAFE)
 ====================== */
+const serviceAccount = JSON.parse(
+  Buffer.from(
+    process.env.FIREBASE_SERVICE_ACCOUNT_BASE64,
+    "base64"
+  ).toString("utf8")
+);
+
 admin.initializeApp({
-  credential: admin.credential.cert(
-    JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-  ),
+  credential: admin.credential.cert(serviceAccount),
   databaseURL:
     "https://gangasolvo-default-rtdb.asia-southeast1.firebasedatabase.app"
 });
@@ -49,7 +55,7 @@ const razorpay = new Razorpay({
 });
 
 /* ======================
-   HEALTH
+   HEALTH CHECK
 ====================== */
 app.get("/health", (_, res) => {
   res.json({ status: "ok" });
@@ -72,14 +78,13 @@ app.post("/create-order", async (req, res) => {
       receipt: `course_${Date.now()}`
     });
 
-    // 🔑 RETURN KEY FROM BACKEND (CRITICAL)
     res.json({
       order,
       key: process.env.RAZORPAY_KEY_ID
     });
 
   } catch (err) {
-    console.error("❌ CREATE ORDER ERROR:", err?.error || err);
+    console.error("❌ CREATE ORDER ERROR:", err);
     res.status(500).json({ error: "Order creation failed" });
   }
 });
