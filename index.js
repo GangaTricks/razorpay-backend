@@ -95,7 +95,22 @@ app.post("/verify-payment", async (req, res) => {
       courseId
     } = req.body;
 
-    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    /* ---------- Basic validation ---------- */
+    if (
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature ||
+      !uid ||
+      !courseId
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid payload"
+      });
+    }
+
+    /* ---------- Signature verification ---------- */
+    const body = `${razorpay_order_id}|${razorpay_payment_id}`;
 
     const expected = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
@@ -103,25 +118,45 @@ app.post("/verify-payment", async (req, res) => {
       .digest("hex");
 
     if (expected !== razorpay_signature) {
-      return res.status(400).json({ success: false });
+      return res.status(400).json({
+        success: false,
+        error: "Signature mismatch"
+      });
     }
 
-    // ✅ Payment verified → unlock course
-    await admin.database()
-      .ref(`users/${uid}/courses/${courseId}`)
-      .set({
-        paid: true,
-        paymentId: razorpay_payment_id,
-        time: Date.now()
-      });
+    /* ---------- Idempotency check ---------- */
+    const courseRef = admin.database()
+      .ref(`users/${uid}/courses/${courseId}`);
 
-    res.json({ success: true });
+    const snapshot = await courseRef.get();
+
+    if (snapshot.exists() && snapshot.val()?.paid === true) {
+      return res.json({
+        success: true,
+        message: "Already verified"
+      });
+    }
+
+    /* ---------- Mark course as paid ---------- */
+    await courseRef.set({
+      paid: true,
+      paymentId: razorpay_payment_id,
+      orderId: razorpay_order_id,
+      verifiedAt: Date.now(),
+      source: "razorpay_checkout"
+    });
+
+    return res.json({ success: true });
 
   } catch (err) {
     console.error("❌ VERIFY ERROR:", err);
-    res.status(500).json({ success: false });
+    return res.status(500).json({
+      success: false,
+      error: "Internal verification error"
+    });
   }
 });
+
 
 /* ======================
    START SERVER
