@@ -95,7 +95,6 @@ app.post("/verify-payment", async (req, res) => {
       courseId
     } = req.body;
 
-    /* ---------- Basic validation ---------- */
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -109,50 +108,47 @@ app.post("/verify-payment", async (req, res) => {
       });
     }
 
-    /* ---------- Signature verification ---------- */
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
 
-    const expected = crypto
+    const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body)
       .digest("hex");
 
-    if (expected !== razorpay_signature) {
+    if (expectedSignature !== razorpay_signature) {
       return res.status(400).json({
         success: false,
         error: "Signature mismatch"
       });
     }
 
-    /* ---------- Idempotency check ---------- */
-    const courseRef = admin.database()
+    const ref = admin.database()
       .ref(`users/${uid}/courses/${courseId}`);
 
-    const snapshot = await courseRef.get();
+    const snap = await ref.get();
 
-    if (snapshot.exists() && snapshot.val()?.paid === true) {
+    if (snap.exists() && snap.val()?.paid === true) {
       return res.json({
         success: true,
         message: "Already verified"
       });
     }
 
-    /* ---------- Mark course as paid ---------- */
-    await courseRef.set({
+    await ref.set({
       paid: true,
-      paymentId: razorpay_payment_id,
       orderId: razorpay_order_id,
+      paymentId: razorpay_payment_id,
       verifiedAt: Date.now(),
-      source: "razorpay_checkout"
+      source: "razorpay_standard_checkout"
     });
 
-    return res.json({ success: true });
+    res.json({ success: true });
 
   } catch (err) {
-    console.error("❌ VERIFY ERROR:", err);
-    return res.status(500).json({
+    console.error("VERIFY ERROR:", err);
+    res.status(500).json({
       success: false,
-      error: "Internal verification error"
+      error: "Internal error"
     });
   }
 });
