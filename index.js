@@ -95,48 +95,38 @@ app.get("/debug-razorpay", async (req, res) => {
 ====================================================== */
 app.post("/create-order", async (req, res) => {
   try {
-    console.log("📦 RAW BODY:", req.body);
-
     let { amount, uid, courseId } = req.body;
 
     amount = Number(amount);
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      console.error("❌ INVALID AMOUNT:", amount);
       return res.status(400).json({ error: "Invalid amount" });
     }
-
-    if (typeof uid !== "string" || uid.trim() === "") {
-      console.error("❌ INVALID UID:", uid);
+    if (typeof uid !== "string" || !uid) {
       return res.status(400).json({ error: "Invalid uid" });
     }
-
-    if (typeof courseId !== "string" || courseId.trim() === "") {
-      console.error("❌ INVALID COURSE:", courseId);
+    if (typeof courseId !== "string" || !courseId) {
       return res.status(400).json({ error: "Invalid courseId" });
     }
 
+    const receipt = `c1_${uid.slice(0, 8)}_${Date.now()}`;
+
     const order = await razorpay.orders.create({
-      amount: amount * 100, // paise
+      amount: amount * 100,
       currency: "INR",
-      receipt: `${uid}_${courseId}_${Date.now()}`
+      receipt
     });
 
     res.json(order);
 
   } catch (err) {
-    console.error("❌ CREATE ORDER FAILED");
-    console.error("message:", err?.message);
-    console.error("error:", err?.error);
-    console.error("stack:", err?.stack);
-
+    console.error("❌ CREATE ORDER FAILED:", err?.error || err?.message);
     res.status(500).json({
       error: "Order creation failed",
       details: err?.error || err?.message
     });
   }
 });
-
 
 
 /* ======================================================
