@@ -95,10 +95,18 @@ app.get("/debug-razorpay", async (req, res) => {
 ====================================================== */
 app.post("/create-order", async (req, res) => {
   try {
-    const { amount, uid, courseId } = req.body;
+    let { amount, uid, courseId } = req.body;
 
-    if (!amount || !uid || !courseId) {
-      return res.status(400).json({ error: "Invalid payload" });
+    amount = Number(amount);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: "Invalid amount" });
+    }
+    if (typeof uid !== "string" || !uid) {
+      return res.status(400).json({ error: "Invalid uid" });
+    }
+    if (typeof courseId !== "string" || !courseId) {
+      return res.status(400).json({ error: "Invalid courseId" });
     }
 
     const order = await razorpay.orders.create({
@@ -110,18 +118,11 @@ app.post("/create-order", async (req, res) => {
     res.json(order);
 
   } catch (err) {
-    console.error("❌ RAZORPAY CREATE-ORDER FAILED");
-    console.error("message:", err?.message);
-    console.error("statusCode:", err?.statusCode);
-    console.error("error:", err?.error);
-    console.error("raw:", JSON.stringify(err, null, 2));
-
-    res.status(500).json({
-      error: "Order creation failed",
-      details: err?.error || err?.message
-    });
+    console.error("❌ CREATE ORDER FAILED:", err?.error || err?.message);
+    res.status(500).json({ error: "Order creation failed" });
   }
 });
+
 
 /* ======================================================
    VERIFY PAYMENT
