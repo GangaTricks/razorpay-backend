@@ -66,12 +66,10 @@ app.post("/create-order", async (req, res) => {
       return res.status(400).json({ error: "Invalid payload" });
     }
 
-    const receipt = `c_${uid.slice(0, 6)}_${Date.now()}`;
-
     const order = await razorpay.orders.create({
       amount: Number(amount) * 100, // paise
       currency: "INR",
-      receipt
+      receipt: `c_${Date.now()}`
     });
 
     res.json(order);
@@ -102,10 +100,7 @@ app.post("/verify-payment", async (req, res) => {
       !uid ||
       !courseId
     ) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid payload"
-      });
+      return res.status(400).json({ success: false });
     }
 
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
@@ -116,43 +111,26 @@ app.post("/verify-payment", async (req, res) => {
       .digest("hex");
 
     if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({
-        success: false,
-        error: "Signature mismatch"
-      });
+      return res.status(400).json({ success: false });
     }
 
-    const ref = admin.database()
-      .ref(`users/${uid}/courses/${courseId}`);
-
-    const snap = await ref.get();
-
-    if (snap.exists() && snap.val()?.paid === true) {
-      return res.json({
-        success: true,
-        message: "Already verified"
+    await admin.database()
+      .ref(`users/${uid}/courses/${courseId}`)
+      .set({
+        paid: true,
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        verifiedAt: Date.now(),
+        source: "razorpay_standard_checkout"
       });
-    }
-
-    await ref.set({
-      paid: true,
-      orderId: razorpay_order_id,
-      paymentId: razorpay_payment_id,
-      verifiedAt: Date.now(),
-      source: "razorpay_standard_checkout"
-    });
 
     res.json({ success: true });
 
   } catch (err) {
     console.error("VERIFY ERROR:", err);
-    res.status(500).json({
-      success: false,
-      error: "Internal error"
-    });
+    res.status(500).json({ success: false });
   }
 });
-
 
 /* ======================
    START SERVER
