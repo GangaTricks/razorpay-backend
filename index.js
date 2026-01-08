@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import Razorpay from "razorpay";
+import crypto from "crypto";
 import admin from "firebase-admin";
 
 /* ======================
@@ -14,7 +15,7 @@ app.use(cors({
     "https://gangasolvo.firebaseapp.com",
     "http://localhost:8080"
   ],
-  methods: ["GET", "POST"],
+  methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type"]
 }));
 
@@ -40,54 +41,85 @@ admin.initializeApp({
 });
 
 /* ======================
-   RAZORPAY (LIVE)
+   RAZORPAY
 ====================== */
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET
+  key_id: process.env.RAZORPAY_KEY_ID.trim(),
+  key_secret: process.env.RAZORPAY_KEY_SECRET.trim()
 });
 
 /* ======================
-   HEALTH CHECK
+   HEALTH
 ====================== */
-app.get("/health", (req, res) => {
+app.get("/health", (_, res) => {
   res.json({ status: "ok" });
 });
 
 /* ======================
-   CREATE PAYMENT LINK
+   CREATE ORDER
 ====================== */
-app.post("/create-payment-link", async (req, res) => {
+app.post("/create-order", async (req, res) => {
   try {
-    const { amount, uid, courseId, email } = req.body;
+    const { amount, uid, courseId } = req.body;
 
-    if (!amount || !uid || !courseId || !email) {
+    if (!amount || !uid || !courseId) {
       return res.status(400).json({ error: "Invalid payload" });
     }
 
-    const payload = {
-      amount: Number(amount) * 100,   // paise
+    const receipt = `c_${uid.slice(0, 6)}_${Date.now()}`;
+
+    const order = await razorpay.orders.create({
+      amount: Number(amount) * 100, // paise
       currency: "INR",
-      description: "Premium Course",
-      customer: { email },
-      notes: { uid, courseId }
-    };
-
-    console.log("📤 Razorpay payload:", payload);
-
-    const link = await razorpay.paymentLink.create(payload);
-
-    res.json({
-      short_url: link.short_url
+      receipt
     });
+
+    res.json(order);
 
   } catch (err) {
-    console.error("❌ Razorpay ERROR:", err);
+    console.error("❌ CREATE ORDER ERROR:", err?.error || err);
+    res.status(500).json({ error: "Order creation failed" });
+  }
+});
 
-    res.status(500).json({
-      error: "Payment link creation failed",
-      razorpay: err?.error || err?.message || err
-    });
+/* ======================
+   VERIFY PAYMENT
+====================== */
+app.post("/verify-payment", async (req, res) => {
+  try {
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      uid,
+      courseId
+    } = req.body;
+
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+
+    const expected = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(body)
+      .digest("hex");
+
+    if (expected !== razorpay_signature) {
+      return res.status(400).json({ success: false });
+    }
+
+    // ✅ Payment verified → unlock course
+    await admin.database()
+      .ref(`users/${uid}/courses/${courseId}`)
+      .set({
+        paid: true,
+        paymentId: razorpay_payment_id,
+        time: Date.now()
+      });
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error("❌ VERIFY ERROR:", err);
+    res.status(500).json({ success: false });
   }
 });
 
