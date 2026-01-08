@@ -11,5 +11,8 @@
     "razorpay": "^2.9.2",
     "firebase-admin": "^12.0.0",
     "cors": "^2.8.5"
+  },
+    "engines": {
+    "node": "18.x"
   }
 }
