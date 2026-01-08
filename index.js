@@ -1,178 +1,106 @@
 import express from "express";
 import cors from "cors";
 import Razorpay from "razorpay";
-import crypto from "crypto";
 import admin from "firebase-admin";
 
-/* ======================================================
-   BASIC APP SETUP
-====================================================== */
 const app = express();
 
+/* =========================
+   CORS
+========================= */
 app.use(cors({
   origin: [
-    "http://localhost:8080",
     "https://gangasolvo.web.app",
-    "https://gangasolvo.firebaseapp.com"
+    "https://gangasolvo.firebaseapp.com",
+    "http://localhost:8080"
   ],
-  methods: ["GET", "POST", "OPTIONS"],
+  methods: ["GET", "POST"],
   allowedHeaders: ["Content-Type"]
 }));
 
 app.use(express.json());
 
-/* ======================================================
-   ENV VALIDATION (FAIL FAST)
-====================================================== */
-if (!process.env.PORT) {
-  throw new Error("❌ PORT missing");
-}
-if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-  throw new Error("❌ FIREBASE_SERVICE_ACCOUNT missing");
-}
-if (!process.env.RAZORPAY_KEY_ID) {
-  throw new Error("❌ RAZORPAY_KEY_ID missing");
-}
-if (!process.env.RAZORPAY_KEY_SECRET) {
-  throw new Error("❌ RAZORPAY_KEY_SECRET missing");
-}
+/* =========================
+   ENV CHECK
+========================= */
+if (!process.env.PORT) throw new Error("PORT missing");
+if (!process.env.RAZORPAY_KEY_ID) throw new Error("RAZORPAY_KEY_ID missing");
+if (!process.env.RAZORPAY_KEY_SECRET) throw new Error("RAZORPAY_KEY_SECRET missing");
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
 
-/* ======================================================
-   FIREBASE ADMIN INIT
-====================================================== */
-let serviceAccount;
-try {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-} catch (e) {
-  console.error("❌ FIREBASE_SERVICE_ACCOUNT is invalid JSON");
-  throw e;
-}
-
+/* =========================
+   FIREBASE ADMIN
+========================= */
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+  credential: admin.credential.cert(
+    JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+  ),
   databaseURL:
     "https://gangasolvo-default-rtdb.asia-southeast1.firebasedatabase.app"
 });
 
-/* ======================================================
-   RAZORPAY INIT (TEST MODE)
-====================================================== */
+/* =========================
+   RAZORPAY
+========================= */
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID.trim(),
-  key_secret: process.env.RAZORPAY_KEY_SECRET.trim()
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
-/* ======================================================
+/* =========================
    HEALTH CHECK
-====================================================== */
+========================= */
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-/* ======================================================
-   DEBUG: RAZORPAY ISOLATION TEST
-   (REMOVE AFTER SUCCESS)
-====================================================== */
-app.get("/debug-razorpay", async (req, res) => {
+/* =========================
+   CREATE PAYMENT LINK
+========================= */
+app.post("/create-payment-link", async (req, res) => {
   try {
-    const order = await razorpay.orders.create({
-      amount: 1000,
+    const { amount, uid, courseId, email } = req.body;
+
+    if (!amount || !uid || !courseId || !email) {
+      return res.status(400).json({ error: "Invalid payload" });
+    }
+
+    const paymentLink = await razorpay.paymentLink.create({
+      amount: Number(amount) * 100,
       currency: "INR",
-      receipt: "debug_test"
+      description: "Premium Course Purchase",
+
+      customer: {
+        email
+      },
+
+      notify: {
+        email: true
+      },
+
+      notes: {
+        uid,
+        courseId
+      },
+
+      callback_url:
+        "https://gangasolvo.web.app/payment-success.html",
+      callback_method: "get"
     });
-    res.json(order);
+
+    res.json({
+      short_url: paymentLink.short_url
+    });
+
   } catch (err) {
-    console.error("❌ DEBUG RAZORPAY ERROR");
-    console.error("message:", err?.message);
-    console.error("statusCode:", err?.statusCode);
-    console.error("error:", err?.error);
-    res.status(500).json(err);
+    console.error("❌ Payment link error:", err);
+    res.status(500).json({ error: "Payment link creation failed" });
   }
 });
 
-/* ======================================================
-   CREATE ORDER
-====================================================== */
-app.post("/create-order", async (req, res) => {
-  try {
-    let { amount, uid, courseId } = req.body;
-
-    amount = Number(amount);
-
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ error: "Invalid amount" });
-    }
-    if (typeof uid !== "string" || !uid) {
-      return res.status(400).json({ error: "Invalid uid" });
-    }
-    if (typeof courseId !== "string" || !courseId) {
-      return res.status(400).json({ error: "Invalid courseId" });
-    }
-
-    const receipt = `c1_${uid.slice(0, 8)}_${Date.now()}`;
-
-    const order = await razorpay.orders.create({
-      amount: amount * 100,
-      currency: "INR",
-      receipt
-    });
-
-    res.json(order);
-
-  } catch (err) {
-    console.error("❌ CREATE ORDER FAILED:", err?.error || err?.message);
-    res.status(500).json({
-      error: "Order creation failed",
-      details: err?.error || err?.message
-    });
-  }
-});
-
-
-/* ======================================================
-   VERIFY PAYMENT
-====================================================== */
-app.post("/verify-payment", async (req, res) => {
-  try {
-    const {
-      razorpay_order_id,
-      razorpay_payment_id,
-      razorpay_signature,
-      uid,
-      courseId
-    } = req.body;
-
-    const body =
-      razorpay_order_id + "|" + razorpay_payment_id;
-
-    const expected = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(body)
-      .digest("hex");
-
-    if (expected !== razorpay_signature) {
-      return res.status(400).json({ success: false });
-    }
-
-    await admin.database()
-      .ref(`users/${uid}/courses/${courseId}`)
-      .set({
-        paid: true,
-        paymentId: razorpay_payment_id,
-        time: Date.now()
-      });
-
-    res.json({ success: true });
-
-  } catch (err) {
-    console.error("❌ VERIFY PAYMENT ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-/* ======================================================
+/* =========================
    START SERVER
-====================================================== */
+========================= */
 app.listen(Number(process.env.PORT), "0.0.0.0", () => {
-  console.log("✅ Server listening on", process.env.PORT);
+  console.log("✅ Backend running on", process.env.PORT);
 });
